@@ -42,3 +42,6 @@ Thumbs.db
 !public/assets/**
 !src/assets/
 !src/assets/**
+
+# Firebase
+.firebase/

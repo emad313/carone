@@ -17,7 +17,7 @@ export default function Engine({ reducedMotion }) {
   }, [reducedMotion]);
   return (
     <section id="engineering" ref={root} className="engine media-section section-dark">
-      <video className="engine__video media-cover" autoPlay muted loop playsInline preload="metadata" poster={asset('images','image-10-engine.jpeg')}>
+      <video className="engine__video media-cover" data-inview muted loop playsInline preload="metadata" poster={asset('images','image-10-engine.jpeg')}>
         <source src={asset('videos','engine-video.mp4')} type="video/mp4" />
       </video>
       <div className="media-section__veil" />

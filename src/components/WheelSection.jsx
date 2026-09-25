@@ -17,7 +17,7 @@ export default function WheelSection({ reducedMotion }) {
   }, [reducedMotion]);
   return (
     <section ref={root} className="wheel section-dark">
-      <div className="wheel__media"><img className="wheel__image" src={asset('images','image-12-tyre.jpeg')} alt="Vehicle tyre detail" loading="lazy" /><video autoPlay muted loop playsInline preload="metadata"><source src={asset('videos','wheel.mp4')} type="video/mp4" /></video></div>
+      <div className="wheel__media"><img className="wheel__image" src={asset('images','image-12-tyre.jpeg')} alt="Vehicle tyre detail" loading="lazy" /><video data-inview muted loop playsInline preload="metadata"><source src={asset('videos','wheel.mp4')} type="video/mp4" /></video></div>
       <div className="wheel__copy container"><p className="eyebrow">07 / TRACTION</p><h2>GRIP<br />THE ROAD.</h2></div>
     </section>
   );

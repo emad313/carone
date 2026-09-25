@@ -10,7 +10,7 @@ export default function Navbar() {
   }, []);
   return (
     <header className={`nav ${scrolled ? 'is-scrolled' : ''}`}>
-      <a className="brand" href="#top" aria-label="One Machine home">OM<span>/</span>01</a>
+      <a className="brand" href="#top" aria-label="CARONE home">CARONE<span>/</span>01</a>
       <nav aria-label="Primary navigation">
         <a href="#vehicle">EXPLORE</a>
         <a href="#engineering">TECHNOLOGY</a>

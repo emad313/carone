@@ -11,59 +11,130 @@ const states = [
   { key: 'water', title: 'WATER.', label: 'WATER MODE', headline: 'GO\nDEEPER.', desc: 'Sealed architecture and water propulsion turn the vehicle into a new kind of mobility.' }
 ];
 
+// Every layer is a 2400x1340 canvas rendered from the same camera, so they
+// stack pixel-aligned in one box. The air kit is split out of
+// png-04-air-wing.png (an exploded view) into its three parts; `cx`/`cy` is
+// each part's centre on that canvas, used to push it along its explode axis.
+const CANVAS = { w: 2400, h: 1340 };
+const CAR_CENTER = { x: 1252, y: 658 };
+const wingParts = [
+  { key: 'front', cx: 592, cy: 791 },
+  { key: 'side', cx: 1547, cy: 793 },
+  { key: 'rear', cx: 1814, cy: 412 }
+];
+// Offset (in % of the layer box) that moves a part `k` times further along the
+// line from the car's centre through the part. k > 0 explodes, k < 0 mounts.
+// Returned as per-target functions so one tween moves each part on its own axis.
+const explode = (k) => ({
+  xPercent: (i) => ((wingParts[i].cx - CAR_CENTER.x) / CANVAS.w) * 100 * k,
+  yPercent: (i) => ((wingParts[i].cy - CAR_CENTER.y) / CANVAS.h) * 100 * k
+});
+
 export default function MorphExperience({ reducedMotion }) {
   const root = useRef(null);
   useLayoutEffect(() => {
-    if (reducedMotion) return;
+    if (reducedMotion) return undefined;
     const ctx = gsap.context(() => {
       const q = gsap.utils.selector(root);
-      const road = q('.morph__road')[0];
-      const air = q('.morph__air')[0];
-      const water = q('.morph__water')[0];
-      const wing = q('.morph__wing')[0];
-      const jet = q('.morph__jet')[0];
-      const title = q('.morph__title')[0];
-      const mode = q('.morph__mode')[0];
-      const headline = q('.morph__headline')[0];
-      const desc = q('.morph__desc')[0];
+      const [road] = q('.morph__road');
+      const [air] = q('.morph__air');
+      const [water] = q('.morph__water');
+      const [jet] = q('.morph__jet');
+      const parts = q('.morph__part');
+      const [copy] = q('.morph__copy');
+      const [title] = q('.morph__title');
+      const [mode] = q('.morph__mode');
+      const [headline] = q('.morph__headline');
+      const [desc] = q('.morph__desc');
       const dots = q('.morph__dot');
+
+      // Decode every layer up front so the first time one fades in doesn't stall
+      // the main thread mid-scroll.
+      q('.morph__stage img').forEach((img) => img.decode?.().catch(() => {}));
+
+      let active = 0;
+      // Mode text follows the timeline position, so it is correct whether the
+      // user scrolls down or back up through the pin.
       const setState = (index) => {
-        const s = states[index];
-        title.textContent = s.title;
-        mode.textContent = s.label;
-        headline.textContent = s.headline;
-        desc.textContent = s.desc;
+        if (index === active) return;
+        active = index;
         dots.forEach((dot, i) => dot.classList.toggle('is-active', i === index));
+        gsap.killTweensOf(copy);
+        gsap.timeline()
+          .to(copy, { autoAlpha: 0, y: -14, duration: 0.18, ease: 'power2.in' })
+          .add(() => {
+            const s = states[index];
+            title.textContent = s.title;
+            mode.textContent = s.label;
+            headline.textContent = s.headline;
+            desc.textContent = s.desc;
+          })
+          .fromTo(copy, { y: 14 }, { autoAlpha: 1, y: 0, duration: 0.32, ease: 'power2.out' });
       };
-      setState(0);
+
+      gsap.set([air, water, jet], { autoAlpha: 0 });
+      gsap.set(parts, { autoAlpha: 0, ...explode(0.35) });
+
       const tl = gsap.timeline({
-        scrollTrigger: { trigger: root.current, start: 'top top', end: '+=3500', scrub: 1, pin: true, anticipatePin: 1, invalidateOnRefresh: true }
+        defaults: { ease: 'power2.inOut' },
+        scrollTrigger: {
+          trigger: root.current,
+          start: 'top top',
+          end: () => `+=${window.innerHeight * 4}`,
+          scrub: 0.6,
+          pin: true,
+          anticipatePin: 1,
+          invalidateOnRefresh: true
+        },
+        onUpdate: () => {
+          const t = tl.time();
+          setState(t >= tl.labels.water ? 2 : t >= tl.labels.air ? 1 : 0);
+        }
       });
-      tl.to({}, { duration: .55 })
-        .to(road, { opacity: 0, scale: 1.035, duration: .75, ease: 'power2.inOut' })
-        .to(wing, { opacity: 1, scale: 1, rotation: 0, duration: .38, ease: 'power2.out' }, '<.1')
-        .to(air, { opacity: 1, scale: 1, duration: .65, ease: 'power2.out', onStart: () => setState(1) }, '<.08')
-        .to(wing, { opacity: 0, duration: .28 }, '>-0.08')
-        .to({}, { duration: .55 })
-        .to(air, { opacity: 0, scale: 1.035, duration: .75, ease: 'power2.inOut' })
-        .to(jet, { opacity: 1, scale: 1, duration: .35, ease: 'power2.out' }, '<.1')
-        .to(water, { opacity: 1, scale: 1, duration: .65, ease: 'power2.out', onStart: () => setState(2) }, '<.08')
-        .to(jet, { opacity: 0, duration: .28 }, '>-0.08')
-        .to({}, { duration: .65 });
-      gsap.to(q('.morph__technical'), { yPercent: -8, ease: 'none', scrollTrigger: { trigger: root.current, start: 'top top', end: '+=3500', scrub: 1 } });
+
+      tl.to({}, { duration: 0.5 })
+        // AIR — the kit appears in its exploded layout around the road car...
+        .to(road, { opacity: 0.45, duration: 0.5 }, 'explodeAir')
+        .to(parts, { autoAlpha: 1, xPercent: 0, yPercent: 0, duration: 0.6, ease: 'power3.out', stagger: 0.06 }, 'explodeAir')
+        .to({}, { duration: 0.2 })
+        // ...then every part travels inward onto its mount as the air car resolves.
+        .addLabel('air')
+        .to(parts, { ...explode(-0.12), duration: 0.55, ease: 'power2.in' }, 'air')
+        .to(parts, { autoAlpha: 0, duration: 0.3, ease: 'power1.in' }, 'air+=0.3')
+        .to(air, { autoAlpha: 1, duration: 0.45, ease: 'power2.out' }, 'air+=0.25')
+        .set(road, { autoAlpha: 0 })
+        .to({}, { duration: 0.6 })
+        // WATER — an x-ray pass of the propulsion module over the car...
+        .to(air, { opacity: 0.45, duration: 0.45 }, 'xray')
+        .fromTo(jet, { autoAlpha: 0, scale: 1.06 }, { autoAlpha: 0.9, scale: 1, duration: 0.55, ease: 'power3.out' }, 'xray')
+        .to({}, { duration: 0.2 })
+        // ...that settles into the sealed water body.
+        .addLabel('water')
+        .to(jet, { autoAlpha: 0, scale: 0.97, duration: 0.45, ease: 'power2.in' }, 'water')
+        .to(water, { autoAlpha: 1, duration: 0.45, ease: 'power2.out' }, 'water+=0.15')
+        .set(air, { autoAlpha: 0 })
+        .to({}, { duration: 0.6 });
+
+      gsap.to(q('.morph__technical'), { yPercent: -8, ease: 'none', scrollTrigger: { trigger: root.current, start: 'top top', end: () => `+=${window.innerHeight * 4}`, scrub: 0.6 } });
     }, root);
     return () => ctx.revert();
   }, [reducedMotion]);
+
+  const layer = (file) => asset('transformation', file);
 
   return (
     <section ref={root} className="morph section-dark" aria-label="Road, air and water modes">
       <div className="morph__ambient" />
       <div className="morph__vehicle" aria-hidden="true">
-        <img className="morph__layer morph__road" src={asset('transformation','png-01-road.png')} alt="" />
-        <img className="morph__layer morph__air" src={asset('transformation','png-01-air.png')} alt="" />
-        <img className="morph__overlay morph__wing" src={asset('transformation','png-04-air-wing.png')} alt="" />
-        <img className="morph__layer morph__water" src={asset('transformation','png-03-water.png')} alt="" />
-        <img className="morph__overlay morph__jet" src={asset('transformation','png-05-water-jet.png')} alt="" />
+        <div className="morph__stage">
+          <img className="morph__layer morph__road" src={layer('road.webp')} alt="" />
+          <img className="morph__layer morph__air" src={layer('air.webp')} alt="" />
+          {wingParts.map((part) => (
+            <img key={part.key} className="morph__layer morph__part" src={layer(`wing-${part.key}.webp`)} alt="" />
+          ))}
+          <img className="morph__layer morph__water" src={layer('water.webp')} alt="" />
+          <img className="morph__layer morph__jet" src={layer('water-jet.webp')} alt="" />
+        </div>
       </div>
       <div className="morph__technical">
         <div className="morph__copy">

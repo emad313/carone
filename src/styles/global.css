@@ -1,6 +1,6 @@
 :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background:#050505; color:#f4f4f2; font-synthesis:none; text-rendering:optimizeLegibility; }
 * { box-sizing:border-box; }
-html { scroll-behavior:smooth; background:#050505; }
+html { background:#050505; }
 body { margin:0; min-width:320px; background:#050505; color:#f4f4f2; }
 body, button, a { font-family:Inter, system-ui, sans-serif; }
 a { color:inherit; text-decoration:none; }

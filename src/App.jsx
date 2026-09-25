@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
+import 'lenis/dist/lenis.css';
+import Loader from './components/Loader';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import ForwardReveal from './components/ForwardReveal';
@@ -23,6 +25,21 @@ gsap.registerPlugin(ScrollTrigger);
 export default function App() {
   const appRef = useRef(null);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [loaderDone, setLoaderDone] = useState(false);
+
+  // Always start at the top behind the loader; scrolling is locked until the
+  // hero is revealed.
+  useEffect(() => {
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+    window.scrollTo(0, 0);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('is-loading', !revealed);
+    if (revealed) window.lenis?.start();
+    else window.lenis?.stop();
+  }, [revealed]);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -32,37 +49,51 @@ export default function App() {
     return () => media.removeEventListener?.('change', update);
   }, []);
 
-  // One smooth-scroll engine drives the whole page. ScrollTrigger receives
-  // Lenis' smoothed scroll position, so wheel/touch movement stays cinematic
-  // without fighting the browser's native scrolling.
+  // One smooth-scroll engine drives the whole page. Lenis is stepped from GSAP's
+  // ticker so scroll position and every ScrollTrigger update land in the same
+  // frame; lagSmoothing(0) stops GSAP from "catching up" after a slow frame.
   useEffect(() => {
     if (reducedMotion) return;
 
     const lenis = new Lenis({
-      duration: 1.5,
+      lerp: 0.1,
       smoothWheel: true,
-      wheelMultiplier: 0.85,
-      touchMultiplier: 1.05,
+      wheelMultiplier: 1,
+      touchMultiplier: 1,
       syncTouch: false,
       autoRaf: false,
+      anchors: { offset: 0 },
     });
 
     window.lenis = lenis;
+    if (document.documentElement.classList.contains('is-loading')) lenis.stop();
     lenis.on('scroll', ScrollTrigger.update);
 
-    let rafId;
-    const raf = (time) => {
-      lenis.raf(time);
-      rafId = requestAnimationFrame(raf);
-    };
-    rafId = requestAnimationFrame(raf);
+    const tick = (time) => lenis.raf(time * 1000);
+    gsap.ticker.add(tick);
+    gsap.ticker.lagSmoothing(0);
 
     return () => {
-      cancelAnimationFrame(rafId);
+      gsap.ticker.remove(tick);
+      gsap.ticker.lagSmoothing(500, 33);
       delete window.lenis;
       lenis.destroy();
     };
   }, [reducedMotion]);
+
+  // Ambient looping videos only decode while on screen. Five full-screen videos
+  // playing at once off-screen is the main source of dropped frames elsewhere.
+  useEffect(() => {
+    const videos = Array.from(appRef.current.querySelectorAll('video[data-inview]'));
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(({ target, isIntersecting }) => {
+        if (isIntersecting) target.play().catch(() => {});
+        else target.pause();
+      });
+    }, { rootMargin: '25% 0px' });
+    videos.forEach((video) => observer.observe(video));
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -87,10 +118,13 @@ export default function App() {
   }, []);
 
   return (
-    <div ref={appRef} className={reducedMotion ? 'site reduced-motion' : 'site'}>
+    <div ref={appRef} className={`site${reducedMotion ? ' reduced-motion' : ''}${revealed ? '' : ' is-loading'}`}>
+      {!loaderDone && (
+        <Loader reducedMotion={reducedMotion} onReveal={() => setRevealed(true)} onDone={() => setLoaderDone(true)} />
+      )}
       <Navbar />
       <main>
-        <Hero reducedMotion={reducedMotion} />
+        <Hero reducedMotion={reducedMotion} revealed={revealed} />
         <ForwardReveal reducedMotion={reducedMotion} />
         <MorphExperience reducedMotion={reducedMotion} />
         <Interior reducedMotion={reducedMotion} />

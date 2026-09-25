@@ -1,106 +1,91 @@
 import React, { useLayoutEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { asset } from '../App';
+import { createFrameSequence, frameSrc } from './frameSequence';
 
 gsap.registerPlugin(ScrollTrigger);
 
+// video-02.mp4 (10s @ 24fps) scrubbed as an image sequence; see frameSequence.js.
+const FRAME_COUNT = 240;
+const FPS = 24;
+const DURATION = FRAME_COUNT / FPS; // 10 seconds
+const SCROLL_PER_SECOND = 0.6; // viewport heights of scroll per second of footage
+
+// Copy beats keyed to what the footage shows at that moment (seconds).
+const stages = [
+  { from: 0, eyebrow: '02 / APPROACH', title: ['BUILT', 'FORWARD.'], body: ['Every line has a purpose.', 'Every surface is shaped around motion.'] },
+  { from: 2.6, eyebrow: '02.1 / LIGHT', title: ['EYES ON', 'THE ROAD.'], body: ['A light signature that reads', 'the way ahead before you reach it.'] },
+  { from: 5, eyebrow: '02.2 / SURFACE', title: ['SHAPED', 'BY AIR.'], body: ['Continuous surfaces guide the flow', 'from the nose to the tail.'] },
+  { from: 7.8, eyebrow: '02.3 / PROFILE', title: ['PURE', 'MOTION.'], body: ['Low, wide and planted.', 'Designed to be seen moving.'] },
+  { from: 9, eyebrow: '02.4 / DEPARTURE', title: ['READY', 'FOR MORE.'], body: ['The road is only the beginning.'] }
+];
+
+const formatTime = (s) => `00:${String(Math.min(Math.floor(s), 10)).padStart(2, '0')}`;
+
 export default function ForwardReveal({ reducedMotion }) {
   const sectionRef = useRef(null);
-  const videoRef = useRef(null);
-  const progressDotRef = useRef(null);
+  const canvasRef = useRef(null);
+  const timeRef = useRef(null);
+  const fillRef = useRef(null);
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
-    const video = videoRef.current;
-    if (!section || !video || reducedMotion) return undefined;
+    const canvas = canvasRef.current;
+    if (!section || !canvas || reducedMotion) return undefined;
 
-    // Ensure video is paused and muted
-    video.muted = true;
-    video.pause();
+    const sequence = createFrameSequence(canvas, 'forward', FRAME_COUNT);
 
-    // Prime frame 0 so the video is never black / empty on initial render
-    const primeFrame = () => {
-      if (video.currentTime === 0) {
-        video.currentTime = 0.001;
-      }
-    };
-    if (video.readyState >= 1) {
-      primeFrame();
-    } else {
-      video.addEventListener('loadeddata', primeFrame, { once: true });
-    }
-
-    let targetTime = 0;
-    let smoothTime = 0;
-    let isSeeking = false;
-    let rafId = null;
-
-    // Silky smooth RAF loop:
-    // Lerps smoothTime -> targetTime and updates video.currentTime with a seeking guard.
-    // This allows buttery smooth scrubbing forward AND in reverse without decoder choke.
-    const renderLoop = () => {
-      const diff = targetTime - smoothTime;
-      if (Math.abs(diff) > 0.001) {
-        smoothTime += diff * 0.18;
-      } else {
-        smoothTime = targetTime;
-      }
-
-      // Only seek when the browser decoder has finished the previous seek
-      if (!isSeeking && !video.seeking) {
-        const delta = Math.abs(video.currentTime - smoothTime);
-        if (delta > 0.02) {
-          isSeeking = true;
-          video.currentTime = smoothTime;
-        }
-      }
-
-      // Visual progress dot scale
-      const duration = video.duration || 10;
-      if (progressDotRef.current) {
-        const p = Math.min(Math.max(smoothTime / duration, 0), 1);
-        progressDotRef.current.style.transform = `scale(${1.2 + p * 0.8})`;
-      }
-
-      rafId = requestAnimationFrame(renderLoop);
-    };
-
-    const onSeeked = () => {
-      isSeeking = false;
-    };
-    video.addEventListener('seeked', onSeeked);
-
-    // Start RAF loop immediately
-    rafId = requestAnimationFrame(renderLoop);
-
-    // Register ScrollTrigger synchronously in useLayoutEffect to preserve document order
     const ctx = gsap.context(() => {
-      ScrollTrigger.create({
-        trigger: section,
-        start: 'top top',
-        end: '+=2400',
-        pin: true,
-        anticipatePin: 1,
-        invalidateOnRefresh: true,
-        onUpdate: (self) => {
-          const duration = video.duration || 10;
-          // Progress goes 0 -> 1 on scroll down, 1 -> 0 on scroll back up
-          targetTime = self.progress * duration;
+      const q = gsap.utils.selector(section);
+      const stageEls = q('.forward__stage');
+      const ticks = q('.forward__tick');
+      const playhead = { time: 0 };
+
+      gsap.set(stageEls.slice(1), { autoAlpha: 0, y: 40 });
+
+      // Timeline units are seconds of footage, so scroll maps 1:1 onto the video.
+      const tl = gsap.timeline({
+        defaults: { ease: 'none' },
+        scrollTrigger: {
+          trigger: section,
+          start: 'top top',
+          end: () => `+=${window.innerHeight * SCROLL_PER_SECOND * DURATION}`,
+          pin: true,
+          scrub: 0.5,
+          anticipatePin: 1,
+          invalidateOnRefresh: true
         }
       });
 
-      // Subtle parallax on text copy
-      gsap.fromTo('.forward__copy',
-        { y: 0, opacity: 0.9 },
-        { y: -30, opacity: 1, ease: 'none', scrollTrigger: { trigger: section, start: 'top top', end: '+=2400', scrub: 1 } }
-      );
+      tl.to(playhead, {
+        time: DURATION,
+        duration: DURATION,
+        onUpdate: () => {
+          const t = playhead.time;
+          sequence.seek(Math.round(t * FPS));
+          if (timeRef.current) timeRef.current.textContent = formatTime(t);
+          if (fillRef.current) fillRef.current.style.transform = `scaleY(${t / DURATION})`;
+          const second = Math.floor(t);
+          ticks.forEach((tick, i) => tick.classList.toggle('is-active', i <= second));
+        }
+      }, 0);
+
+      // Slow push-in over the whole sequence for depth.
+      tl.fromTo(canvas, { scale: 1.06 }, { scale: 1, duration: DURATION }, 0);
+
+      // Cross-fade copy beats at their timestamps.
+      stages.forEach((stage, i) => {
+        if (i === 0) return;
+        const prev = stageEls[i - 1];
+        const next = stageEls[i];
+        const at = stage.from - 0.3;
+        tl.to(prev, { autoAlpha: 0, y: -40, duration: 0.35, ease: 'power2.in' }, at)
+          .to(next, { autoAlpha: 1, y: 0, duration: 0.45, ease: 'power2.out' }, at + 0.3);
+      });
     }, section);
 
     return () => {
-      video.removeEventListener('seeked', onSeeked);
-      video.removeEventListener('loadeddata', primeFrame);
-      if (rafId) cancelAnimationFrame(rafId);
+      sequence.destroy();
       ctx.revert();
     };
   }, [reducedMotion]);
@@ -112,31 +97,34 @@ export default function ForwardReveal({ reducedMotion }) {
       className={`forward section-dark${reducedMotion ? ' forward--reduced' : ''}`}
       aria-label="02 Approach"
     >
-      <video
-        ref={videoRef}
-        className="forward__video"
-        muted
-        playsInline
-        preload="auto"
-        autoPlay={false}
-        loop={false}
-        aria-label="Futuristic amphibious vehicle moving forward"
-      >
-        <source src={asset('videos', 'video-02.mp4')} type="video/mp4" />
-      </video>
+      {reducedMotion ? (
+        <img className="forward__canvas" src={frameSrc('forward', 150)} alt="Futuristic amphibious vehicle moving forward" />
+      ) : (
+        <canvas ref={canvasRef} className="forward__canvas" role="img" aria-label="Futuristic amphibious vehicle moving forward" />
+      )}
 
       <div className="forward__veil" />
 
       <div className="forward__copy container">
-        <p className="eyebrow">02 / APPROACH</p>
-        <h2>BUILT<br />FORWARD.</h2>
-        <p>Every line has a purpose.<br />Every surface is shaped around motion.</p>
+        {(reducedMotion ? stages.slice(0, 1) : stages).map((stage) => (
+          <div className="forward__stage" key={stage.eyebrow}>
+            <p className="eyebrow">{stage.eyebrow}</p>
+            <h2>{stage.title[0]}<br />{stage.title[1]}</h2>
+            <p>{stage.body.map((line, i) => <React.Fragment key={line}>{i > 0 && <br />}{line}</React.Fragment>)}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="forward__progress mono" aria-hidden="true">
-        <span>02</span>
-        <span ref={progressDotRef} className="forward__dot is-active" />
-      </div>
+      {!reducedMotion && (
+        <div className="forward__progress mono" aria-hidden="true">
+          <span ref={timeRef} className="forward__time">00:00</span>
+          <div className="forward__rail">
+            <span ref={fillRef} className="forward__fill" />
+            {Array.from({ length: 10 }, (_, i) => <span key={i} className={`forward__tick${i === 0 ? ' is-active' : ''}`} />)}
+          </div>
+          <span>00:10</span>
+        </div>
+      )}
     </section>
   );
 }
